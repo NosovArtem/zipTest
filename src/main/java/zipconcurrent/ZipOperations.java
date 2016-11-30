@@ -1,8 +1,11 @@
 package zipconcurrent;
 
+import org.apache.log4j.Logger;
+
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -13,55 +16,61 @@ import java.util.zip.ZipOutputStream;
 
 public class ZipOperations implements Runnable {
 
+    private static final Logger log = Logger.getLogger(ZipOperations.class);
+
     private static final int FILE_BUFFER_SIZE = 1024;
 
-    final private Boolean isArchiving;
+    final private String command;
     final private String pathSrc;
-    final private String nameResultFile;
+    final private String basePackage;
+    final private String pathDest;
 
-    public ZipOperations(Boolean isArchiving, String pathSrc, String nameRezultFile) {
-        this.isArchiving = isArchiving;
+
+    public ZipOperations(String command, String pathSrc, String nameRezultFile) throws FileNotFoundException {
+        this.command = command;
         this.pathSrc = pathSrc;
-        this.nameResultFile = nameRezultFile;
-
+        this.basePackage = getBasePackage(pathSrc);
+        this.pathDest = basePackage + File.separator + nameRezultFile;
     }
 
     @Override
     public void run() {
         try {
-            System.out.println(Thread.currentThread().getName() + " Start. Is archiving : " + isArchiving);
-            doAction(isArchiving, pathSrc, nameResultFile);
+            log.info(Thread.currentThread().getName() + " Start. Is archiving : " + command);
+            Commands.valueOf(command.toUpperCase().trim()).command(this);
         } catch (Exception e) {
-             e.printStackTrace();
+            e.printStackTrace();
         }
     }
 
-    private void doAction(Boolean isArchiving, String pathSrc, String nameRezultFile) throws Exception {
-        String basePackage = getBasePackage(pathSrc);
-        String pathDest = basePackage + File.separator + nameRezultFile;
-
-        if (isArchiving){
-            zipFile(basePackage, pathSrc, pathDest);
-        }else if(!isArchiving) {
-            unZipFile(pathSrc, pathDest);
-        }
-    }
-
-
-    public String getBasePackage(String fullPathToFile) {
+    public String getBasePackage(String fullPathToFile) throws FileNotFoundException {
+        fileIsExists();
         int index = fullPathToFile.lastIndexOf("\\");
         return fullPathToFile.substring(0, index);
     }
 
-    private void zipFile(String basePackage, String sourceDir, String zipFile) throws IOException {
-        try (ZipOutputStream zout = new ZipOutputStream(new FileOutputStream(zipFile + ".zip"))) {
-            File file = new File(sourceDir);
+    public void fileIsExists() throws FileNotFoundException {
+        File file = new File(pathSrc);
+
+        if (!file.exists()) {
+            throw new FileNotFoundException("Invalid path to the file. pathSrc:" + pathSrc);
+        }
+    }
+
+    public boolean zipFile() throws IOException {
+        fileIsExists();
+        boolean zipResult;
+        try (ZipOutputStream zout = new ZipOutputStream(new FileOutputStream(pathDest + ".zip"))) {
+            File file = new File(pathSrc);
+
             if (file.isFile()) {
-                singleFileToZip(basePackage, file, zout);
+                zipResult = singleFileToZip(basePackage, file, zout);
             } else {
-                dirToZip(basePackage, file, zout);
+                zipResult = dirToZip(basePackage, file, zout);
             }
         }
+        log.info("Archiving of file: " + pathSrc + "is completed. Archive: " + pathDest + ".zip");
+        return zipResult;
     }
 
     /**
@@ -72,7 +81,7 @@ public class ZipOperations implements Runnable {
 
         byte[] buffer = new byte[FILE_BUFFER_SIZE];
         int bytes_read;
-        try(FileInputStream in = new FileInputStream(file)) {
+        try (FileInputStream in = new FileInputStream(file)) {
 
             entry = new ZipEntry(file.getName());
             out.putNextEntry(entry);
@@ -82,6 +91,7 @@ public class ZipOperations implements Runnable {
             }
             out.closeEntry();
         } catch (IOException e) {
+            e.printStackTrace();
             return false;
         } finally {
             if (out != null) {
@@ -104,10 +114,9 @@ public class ZipOperations implements Runnable {
                 out.putNextEntry(entry);
                 out.closeEntry();
             } catch (IOException e) {
-//  27.11.2016 добавить лог
+                e.printStackTrace();
             }
         }
-
         for (int i = 0; i < files.length; i++) {
             if (files[i].isFile()) {
                 singleFileToZip(baseDirPath, files[i], out);
@@ -118,59 +127,57 @@ public class ZipOperations implements Runnable {
         return true;
     }
 
-    public void unZipFile(String fileName, String unZipDir) throws Exception {
-        File f = new File(unZipDir);
+    public boolean unZipFile() throws Exception {
+        fileIsExists();
+        File f = new File(pathDest);
 
         if (!f.exists()) {
             f.mkdirs();
         }
 
-        BufferedInputStream is = null;
         ZipEntry entry;
-        ZipFile zipfile = new ZipFile(fileName);
+        ZipFile zipfile = new ZipFile(pathSrc);
         Enumeration<?> enumeration = zipfile.entries();
         byte data[] = new byte[FILE_BUFFER_SIZE];
-
+        log.info("pathDest: " + pathDest);
 
         while (enumeration.hasMoreElements()) {
             entry = (ZipEntry) enumeration.nextElement();
 
             if (entry.isDirectory()) {
-                File f1 = new File(unZipDir + "/" + entry.getName());
+                File f1 = new File(pathDest + "/" + entry.getName());
 
                 if (!f1.exists()) {
                     f1.mkdirs();
                 }
             } else {
-                is = new BufferedInputStream(zipfile.getInputStream(entry));
-                int count;
-                String name = unZipDir + "/" + entry.getName();
-                RandomAccessFile m_randFile = null;
-                File file = new File(name);
-                if (file.exists()) {
+                try (BufferedInputStream is = new BufferedInputStream(zipfile.getInputStream(entry))) {
+                    int count;
+                    String name = pathDest + "/" + entry.getName();
+
+                    File file = new File(name);
+                    if (file.exists()) {
+                        file.delete();
+                    }
+                    file.createNewFile();
+
+                    int begin = 0;
+
+                    while ((count = is.read(data, 0, FILE_BUFFER_SIZE)) != -1) {
+                        try (RandomAccessFile m_randFile = new RandomAccessFile(file, "rw")) {
+                            m_randFile.seek(begin);
+                            m_randFile.write(data, 0, count);
+                        } catch (Exception ex) {
+                            ex.printStackTrace();
+                        }
+                        begin = begin + count;
+                    }
                     file.delete();
                 }
-
-                file.createNewFile();
-                m_randFile = new RandomAccessFile(file, "rw");
-                int begin = 0;
-
-                while ((count = is.read(data, 0, FILE_BUFFER_SIZE)) != -1) {
-                    try {
-                        m_randFile.seek(begin);
-                    } catch (Exception ex) {
-
-                    }
-
-                    m_randFile.write(data, 0, count);
-                    begin = begin + count;
-                }
-
-                file.delete();
-                m_randFile.close();
-                is.close();
             }
         }
+        log.info("Archive successfully decompressed. Folder: " + pathDest);
+        return true;
     }
 
 
