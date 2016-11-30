@@ -51,9 +51,8 @@ public class ZipOperations implements Runnable {
 
     public void fileIsExists() throws FileNotFoundException {
         File file = new File(pathSrc);
-
         if (!file.exists()) {
-            throw new FileNotFoundException("Invalid path to the file. pathSrc:" + pathSrc);
+            throw new FileNotFoundException("Invalid path to the file. pathSrc : " + pathSrc);
         }
     }
 
@@ -101,6 +100,9 @@ public class ZipOperations implements Runnable {
         return true;
     }
 
+    /**
+     * This method compresses the folder and all its contents to zip format
+     */
     private boolean dirToZip(String baseDirPath, File dir, ZipOutputStream out) throws IOException {
         if (!dir.isDirectory()) {
             return false;
@@ -127,7 +129,10 @@ public class ZipOperations implements Runnable {
         return true;
     }
 
-    public boolean unZipFile() throws Exception {
+    /**
+     * This method makes unpacking files and folders
+     */
+    public boolean unZipFile() throws IOException {
         fileIsExists();
         File f = new File(pathDest);
 
@@ -154,29 +159,31 @@ public class ZipOperations implements Runnable {
                 try (BufferedInputStream is = new BufferedInputStream(zipfile.getInputStream(entry))) {
                     int count;
                     String name = pathDest + "/" + entry.getName();
-
                     File file = new File(name);
                     if (file.exists()) {
                         file.delete();
                     }
-                    file.createNewFile();
 
+                    file.createNewFile();
                     int begin = 0;
 
-                    while ((count = is.read(data, 0, FILE_BUFFER_SIZE)) != -1) {
-                        try (RandomAccessFile m_randFile = new RandomAccessFile(file, "rw")) {
-                            m_randFile.seek(begin);
+                    try (RandomAccessFile m_randFile = new RandomAccessFile(file, "rw")) {
+
+                        while ((count = is.read(data, 0, FILE_BUFFER_SIZE)) != -1) {
+                            try {
+                                m_randFile.seek(begin);
+                            } catch (Exception ex) {
+                                log.error("exception, ex: " + ex.toString());
+                            }
+
                             m_randFile.write(data, 0, count);
-                        } catch (Exception ex) {
-                            ex.printStackTrace();
+                            begin = begin + count;
                         }
-                        begin = begin + count;
+                        file.delete();
                     }
-                    file.delete();
                 }
             }
         }
-        log.info("Archive successfully decompressed. Folder: " + pathDest);
         return true;
     }
 

@@ -12,7 +12,7 @@ public enum Commands {
     },
     UNZIP {
         @Override
-        public void command(ZipOperations zipOperations) throws Exception {
+        public void command(ZipOperations zipOperations) throws ZipCommandNotFoundException, IOException {
             zipOperations.unZipFile();
         }
     },
@@ -24,11 +24,11 @@ public enum Commands {
     },
     U {
         @Override
-        public void command(ZipOperations zipOperations) throws Exception {
+        public void command(ZipOperations zipOperations) throws ZipCommandNotFoundException, IOException {
             zipOperations.unZipFile();
         }
     };
 
-    public abstract void command(ZipOperations zipOperations) throws Exception;
+    public abstract void command(ZipOperations zipOperations) throws ZipCommandNotFoundException, IOException;
 }
 
